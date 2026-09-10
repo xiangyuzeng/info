@@ -94,10 +94,13 @@ def trend_svg(up):
             continue
         grid.append(f'<line x1="{ml}" y1="{y(gv):.1f}" x2="{W-mr}" y2="{y(gv):.1f}" class="grid"/>')
         labels.append(f'<text x="{ml-10}" y="{y(gv)+4:.1f}" class="ax" text-anchor="end">{gv:,}</text>')
-    xticks = []
-    for i, d in enumerate(up["日期"]):
-        if i % 3 == 0 or i == n - 1:
-            xticks.append(f'<text x="{xs[i]:.1f}" y="{H-mb+20}" class="ax" text-anchor="middle">{d[5:]}</text>')
+    xticks, step = [], 3
+    keep = list(range(0, n, step))
+    if n - 1 - keep[-1] >= 2:            # only add the final tick if it will not collide
+        keep.append(n - 1)
+    for i in keep:
+        d = up["日期"].iloc[i]
+        xticks.append(f'<text x="{xs[i]:.1f}" y="{H-mb+20}" class="ax" text-anchor="middle">{d[5:]}</text>')
 
     marks = []
     for day, txt in [("2026-09-03", "9/3 攻击起量"), ("2026-09-09", "9/9 新策略生效")]:
