@@ -1,88 +1,13 @@
-"""Render the management briefing dashboard from out/data/*.csv.
-
-Audience: China HQ security / tech management. This is a self-contained briefing --
-a reader should finish it without needing the 9 technical reports or a background
-explainer on what SMS pumping is.
-
-Design system is fixed and documented in docs/02_看板设计说明.md -- do not reinvent it.
-Charts are hand-authored inline SVG (the Artifact CSP forbids external JS/CSS).
-
-    python -m sms_attack.dashboard
-"""
-import os
-
-import pandas as pd
-
-from . import figures as F
-
-OUT_HTML = os.path.join(F.OUT, "mgmt_dashboard.html")
-UNIT_LO, UNIT_HI = 0.03, 0.13     # USD per international OTP SMS -- ASSUMPTION, see docs/03
-
-
-def _f(n):
-    return f"{n:,.0f}"
-
-
-def load_all():
-    D = F.OUT_DATA
-    r = lambda n: pd.read_csv(os.path.join(D, n))
-    up = r("06_upush_daily.csv")
-    up = up[up["日期"] < "2026-09-10"].reset_index(drop=True)   # drop the partial final day
-    rc = r("02_recall.csv")
-    cand = r("04_candidates.csv").set_index("策略")
-    coh = r("03_cohort_profile.csv").set_index("cohort")
-    dv = r("01_daily_overview.csv")
-
-    atk = dv[(dv.date_utc >= "2026-09-03") & (dv.date_utc <= "2026-09-09")].copy()
-    atk["rej"] = atk["非1_86调用"] - atk["非1_86_PASS"]
-    base = up[(up["日期"] >= "2026-08-27") & (up["日期"] <= "2026-09-02")]["其他区号发送"]
-    last = up.iloc[-1]
-
-    m = {
-        "up": up, "curve": r("04_threshold_curve.csv"), "evas": r("04_threshold_evasion_by_cc.csv"),
-        "byday": r("02_recall_by_day.csv"), "src": r("07_source_country.csv"),
-        "dev": r("07_device_profile.csv"), "tl": r("06_measures_timeline.csv"),
-        "cc": r("05_black_sample_by_cc.csv"), "leak": r("02_leak_breakdown.csv"),
-        "today_attack": int(last["其他区号发送"]),
-        "today_fill": float(last["其他区号填充率%"]),
-        "today_us_fill": float(last["+1填充率%"]),
-        "today_us_send": int(last["+1发送"]),
-        "baseline": float(base.mean()), "base_lo": int(base.min()), "base_hi": int(base.max()),
-        "sent_cum": int(up[up["日期"] >= "2026-09-03"]["其他区号发送"].sum()),
-        "sent_since_cfg": int(up[up["日期"] >= "2026-09-04"]["其他区号发送"].sum()),
-        "blocked_cum": int(atk["rej"].sum()),
-        "recall_now": float(rc.iloc[1]["ONLINE召回%"]),
-        "leak_now": int(rc.iloc[1]["漏召回(PASS)"]),
-        "black_total": int(rc.iloc[1]["黑产总量"]),
-        "recall_after": 95.2,
-        "cand_a": cand.loc["strategy_MGj5bfGOijOi"], "cand_b": cand.loc["strategy_x37TInaHsvPQ"],
-        "us_req": int(coh.loc["美国IP·非+1/+86", "请求数"]),
-        "nonus_req": int(coh.loc["非美国IP·非+1/+86", "请求数"]),
-        "us_ip_multi": float(coh.loc["美国IP·非+1/+86", "IP>3手机号占比%"]),
-        "p1_ip_multi": float(coh.loc["+1 正常基线", "IP>3手机号占比%"]),
-        "us_pushonly": float(coh.loc["美国IP·非+1/+86", "仅调短信uid%"]),
-        "p1_pushonly": float(coh.loc["+1 正常基线", "仅调短信uid%"]),
-    }
-    m["multiple"] = round(m["today_attack"] / m["baseline"], 1)
-    m["us_ip_share"] = round(m["us_req"] / (m["us_req"] + m["nonus_req"]) * 100, 1)
-    m["cost_day"] = (m["today_attack"] * UNIT_LO, m["today_attack"] * UNIT_HI)
-    m["cost_cum"] = (m["sent_cum"] * UNIT_LO, m["sent_cum"] * UNIT_HI)
-    m["cost_saved"] = (m["blocked_cum"] * UNIT_LO, m["blocked_cum"] * UNIT_HI)
-    m["cost_month"] = (m["today_attack"] * 30 * UNIT_LO, m["today_attack"] * 30 * UNIT_HI)
-    resid = m["today_attack"] * (1 - m["recall_after"] / 100) / (1 - m["recall_now"] / 100)
-    m["resid_day"] = resid
-    m["save_month"] = ((m["today_attack"] - resid) * 30 * UNIT_LO,
-                       (m["today_attack"] - resid) * 30 * UNIT_HI)
-    ip = m["dev"][m["dev"].机型 == "__iPhone合计__"].set_index("分组")["占比%"]
-    m["iphone_atk"], m["iphone_p1"] = float(ip["攻击流量"]), float(ip["正常美国用户"])
-    return m
-
-
-# ----------------------------------------------------------------- design system
-# Colours match docs/02_看板设计说明.md. Chrome uses the company navy; data marks use
-# the validated categorical pair. Every colour is a token so the three theme states
-# (unstamped / data-theme=light / data-theme=dark) all resolve as a set.
-CSS = """
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LKUS 短信攻击处置看板</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
 :root {
   --ground:#F2F4F7; --surface:#FFFFFF; --surface-2:#F7F9FB;
   --ink:#16243A; --ink-2:#5A6678; --ink-3:#8A94A3;
@@ -268,13 +193,47 @@ footer{color:var(--ink-3);font-size:12px;text-align:center;padding-top:6px}
   .card{padding:16px 15px} h2.sec{font-size:18px}
   .sol dl{grid-template-columns:1fr;gap:2px 0} .sol dt{padding-top:6px}
 }
-"""
+</style>
 
+</head>
+<body>
+<nav class="nav"><div class="nav-in"><a href="#summary">执行摘要</a><a href="#background">问题背景</a><a href="#timeline">事件经过</a><a href="#impact">影响评估</a><a href="#evidence">判定依据</a><a href="#actions">已采取措施</a><a href="#why">为什么没压住</a><a href="#solution">解决方案</a><a href="#decide">待决事项</a><a href="#process">流程改进</a><a href="#caveat">口径与缺口</a></div></nav>
+<div class="wrap">
 
-def mechanism_svg():
-    """The one picture that answers '我们被黑了吗'. Claim: nothing was breached --
-    the attacker profits from the SMS being *sent*, via carrier revenue share."""
-    return '''<figure>
+<section id="summary">
+  <div class="ribbon">
+    <span class="tag">🔴 尚未压制</span>
+    <span style="color:var(--ink-2);font-size:14px">攻击仍在上行，未出现拐点</span>
+    <span class="day">数据窗口至 2026-09-10 06:32 UTC（北京 14:32）</span>
+  </div>
+  <header style="margin-top:20px">
+    <h1>短信验证码遭黑产刷量 · 第 8 天处置简报</h1>
+    <p class="lede">攻击方持续向<b>我们没有客户的国家</b>刷取验证码短信，每条都由公司真实付费。
+      当前每天仍有 <b class="num">2,337</b> 条攻击短信发出，是攻击前日均的
+      <b class="num">35.6</b> 倍。<b>正常美国用户完全未受影响。</b>
+      两条策略已配置完成、等待审批，<b>上线即可把拦截率从 53.8% 提到 95.2%</b>，
+      且攻击前 25 天回测对美国真实用户零命中。</p>
+    <div class="meta">数据来源：风控请求日志（64 分片源库）+ 短信发送记录，全程只读 · 共 76,764 条风控请求</div>
+  </header>
+  <div class="kpis" style="margin-top:18px">
+    <div class="kpi"><div class="k">每日攻击短信</div><div class="v crit num">2,337</div>
+      <div class="s">攻击前日均 66 条 · <b>↑35.6倍</b></div></div>
+    <div class="kpi"><div class="k">当前拦截率</div><div class="v warn num">53.8%</div>
+      <div class="s">仍有 2,836 条/日漏过</div></div>
+    <div class="kpi"><div class="k">估算日损耗</div><div class="v crit num">$70~304</div>
+      <div class="s">估算值 · 口径见文末</div></div>
+    <div class="kpi"><div class="k">正常用户影响</div><div class="v good num">0</div>
+      <div class="s">验证码填充率稳定 95.0%</div></div>
+    <div class="kpi"><div class="k">已避免损耗</div><div class="v good num">$573~2,482</div>
+      <div class="s">已拦下 19,092 条</div></div>
+  </div>
+</section>
+
+<section id="background">
+  <h2 class="sec">一、问题背景：这是什么攻击</h2>
+  <p class="seclede">先回答最容易被误解的一个问题——<b>我们没有被入侵</b>。这是一类叫「短信刷量」
+    （SMS Pumping / 话务人为增量 AIT）的欺诈，攻击方滥用的是一个完全正常的业务功能。</p>
+  <div class="card"><figure>
 <svg viewBox="0 0 880 292" class="chart dgm" role="img"
      aria-label="攻击获利链条：攻击脚本刷验证码接口，我们付费给短信服务商，服务商结算给目的国运营商，运营商把话务分成返给攻击方">
   <defs>
@@ -321,193 +280,7 @@ def mechanism_svg():
 <figcaption><b>攻击方没有攻破任何系统。</b>他们与部分国家的终端运营商存在话务分成，
 通过脚本让我们向高结算价国家发出大量短信，费用由公司承担、分成由攻击方获得。
 因此这不是入侵事件，而是对一个正常业务功能的滥用。</figcaption>
-</figure>'''
-
-
-def _fig(svg, caption):
-    return f'<figure>{svg}\n<figcaption>{caption}</figcaption></figure>'
-
-
-def trend_svg(up):
-    W, H, ml, mr, mt, mb = 760, 300, 54, 16, 18, 40
-    pw, ph = W - ml - mr, H - mt - mb
-    ymax = max(list(up["+1发送"]) + list(up["其他区号发送"])) * 1.12
-    n = len(up)
-    xs = [ml + pw * i / (n - 1) for i in range(n)]
-    y = lambda v: mt + ph - ph * v / ymax
-    path = lambda c: " ".join(("M" if i == 0 else "L") + f"{xs[i]:.1f},{y(v):.1f}"
-                              for i, v in enumerate(up[c]))
-    g = "".join(f'<line x1="{ml}" y1="{y(v):.1f}" x2="{W-mr}" y2="{y(v):.1f}" class="grid"/>'
-                f'<text x="{ml-10}" y="{y(v)+4:.1f}" class="ax" text-anchor="end">{v:,}</text>'
-                for v in range(500, int(ymax), 500))
-    keep = list(range(0, n, 3))
-    if n - 1 - keep[-1] >= 2:
-        keep.append(n - 1)
-    tk = "".join(f'<text x="{xs[i]:.1f}" y="{H-mb+20}" class="ax" text-anchor="middle">'
-                 f'{up["日期"].iloc[i][5:]}</text>' for i in keep)
-    mk = ""
-    for day, txt, anch in [("2026-09-03", "9/3 攻击起量", "start"), ("2026-09-09", "9/9 新策略生效", "end")]:
-        i = list(up["日期"]).index(day)
-        dx = 6 if anch == "start" else -6
-        mk += (f'<line x1="{xs[i]:.1f}" y1="{mt}" x2="{xs[i]:.1f}" y2="{mt+ph}" class="mark"/>'
-               f'<text x="{xs[i]+dx:.1f}" y="{mt+12}" class="markt" text-anchor="{anch}">{txt}</text>')
-    lv = up["其他区号发送"].iloc[-1]
-    return f'''<svg viewBox="0 0 {W} {H}" class="chart" role="img" aria-label="每日实发短信趋势，攻击流量自9月3日起飙升且未见拐点">
-{g}{tk}{mk}<path d="{path('+1发送')}" class="s-blue"/><path d="{path('其他区号发送')}" class="s-orange"/>
-<circle cx="{xs[-1]:.1f}" cy="{y(lv):.1f}" r="4.5" class="dot-orange"/>
-<text x="{xs[-1]-8:.1f}" y="{y(lv)-12:.1f}" class="endlab" text-anchor="end">{lv:,}</text></svg>'''
-
-
-def fill_svg(m):
-    W, H, ml = 760, 150, 130
-    bw = W - ml - 96
-    out = []
-    for i, (lab, v, c) in enumerate([("正常美国用户", m["today_us_fill"], "blue"),
-                                     ("攻击目标区号", m["today_fill"], "orange")]):
-        yy = 34 + i * 62
-        out.append(f'<text x="{ml-16}" y="{yy+21}" class="blab" text-anchor="end">{lab}</text>'
-                   f'<rect x="{ml}" y="{yy}" width="{bw}" height="30" rx="4" class="track"/>'
-                   f'<rect x="{ml}" y="{yy}" width="{max(bw*v/100,3):.1f}" height="30" rx="4" class="bar-{c}"/>'
-                   f'<text x="{ml+bw+14}" y="{yy+21}" class="bval-{c}">{v}%</text>')
-    return f'''<svg viewBox="0 0 {W} {H}" class="chart" role="img" aria-label="验证码填充率对比，正常用户95%，攻击目标区号0.6%">{''.join(out)}</svg>'''
-
-
-def _hbar(rows, W=760, ml=124, rlab=104, unit="", cls="bar-orange", hi=None):
-    """Generic horizontal bar chart: rows = [(label, value, right_text)]."""
-    bw = W - ml - rlab
-    mx = max(r[1] for r in rows) or 1
-    H = 18 + len(rows) * 30
-    out = []
-    for i, (lab, v, rt) in enumerate(rows):
-        yy = 10 + i * 30
-        c = cls if (hi is None or lab in hi) else "bar-blue"
-        out.append(f'<text x="{ml-14}" y="{yy+16}" class="blab" text-anchor="end">{lab}</text>'
-                   f'<rect x="{ml}" y="{yy}" width="{max(bw*v/mx,2):.1f}" height="21" rx="3" class="{c}"/>'
-                   f'<text x="{ml+max(bw*v/mx,2)+9:.1f}" y="{yy+16}" class="bval">{rt}</text>')
-    return W, H, "".join(out)
-
-
-def source_svg(src):
-    rows = [(r["来源国家"], r["请求数"], f'{r["请求数"]:,}　{r["占比%"]}%') for _, r in src.iterrows()]
-    W, H, body = _hbar(rows, hi={"美国"})
-    return f'''<svg viewBox="0 0 {W} {H}" class="chart" role="img" aria-label="攻击来源IP国家分布，巴基斯坦德国美国为前三">{body}</svg>'''
-
-
-def device_svg(dev, m):
-    a = dev[(dev.分组 == "攻击流量") & (dev.机型 != "__iPhone合计__")].head(6)
-    rows = [(r["机型"], r["请求数"], f'{r["占比%"]}%') for _, r in a.iterrows()]
-    W, H, body = _hbar(rows, ml=132)
-    return f'''<svg viewBox="0 0 {W} {H}" class="chart" role="img" aria-label="攻击流量的设备机型全部为低价安卓机，无iPhone">{body}</svg>'''
-
-
-def daily_recall_svg(byday):
-    W, H, ml, mr, mt, mb = 760, 260, 54, 16, 20, 44
-    pw, ph = W - ml - mr, H - mt - mb
-    n = len(byday)
-    ymax = max(byday["黑产(SOP标签)"]) * 1.18
-    slot = pw / n
-    y = lambda v: mt + ph - ph * v / ymax
-    out = []
-    for i, r in byday.iterrows():
-        cx = ml + slot * (i + .5)
-        w = slot * .30
-        out.append(f'<rect x="{cx-w-1.5:.1f}" y="{y(r["已拦截"]):.1f}" width="{w:.1f}" height="{mt+ph-y(r["已拦截"]):.1f}" class="bar-good"/>'
-                   f'<rect x="{cx+1.5:.1f}" y="{y(r["漏召回(PASS)"]):.1f}" width="{w:.1f}" height="{mt+ph-y(r["漏召回(PASS)"]):.1f}" class="bar-orange"/>'
-                   f'<text x="{cx:.1f}" y="{H-mb+18}" class="ax" text-anchor="middle">{r["日期(UTC)"][5:]}</text>'
-                   f'<text x="{cx:.1f}" y="{min(y(r["已拦截"]),y(r["漏召回(PASS)"]))-7:.1f}" class="bval" text-anchor="middle">{r["召回%"]}%</text>')
-    g = "".join(f'<line x1="{ml}" y1="{y(v):.1f}" x2="{W-mr}" y2="{y(v):.1f}" class="grid"/>'
-                f'<text x="{ml-10}" y="{y(v)+4:.1f}" class="ax" text-anchor="end">{v:,}</text>'
-                for v in range(1000, int(ymax), 1000))
-    return f'''<svg viewBox="0 0 {W} {H}" class="chart" role="img" aria-label="逐日拦截与漏过对比，拦截率长期停在五成上下">{g}{''.join(out)}</svg>'''
-
-
-def threshold_svg(evas):
-    e = evas.sort_values("中位").head(10)
-    W, H, ml, mr = 760, 40 + len(e) * 27, 92, 92
-    pw = W - ml - mr
-    mx = 40.0
-    out = []
-    for i, (_, r) in enumerate(e.iterrows()):
-        yy = 12 + i * 27
-        w = pw * r["中位"] / mx
-        out.append(f'<text x="{ml-14}" y="{yy+15}" class="blab" text-anchor="end">+{int(r["cc"])}</text>'
-                   f'<rect x="{ml}" y="{yy}" width="{w:.1f}" height="19" rx="3" class="bar-blue"/>'
-                   f'<text x="{ml+w+9:.1f}" y="{yy+15}" class="bval">中位 {r["中位"]:.0f}</text>')
-    tx = ml + pw * 30 / mx
-    out.append(f'<line x1="{tx:.1f}" y1="6" x2="{tx:.1f}" y2="{H-24}" stroke="var(--orange)" stroke-width="2"/>'
-               f'<text x="{tx+7:.1f}" y="{H-10}" class="lab-m" style="fill:var(--orange);font-size:12px;font-weight:700">现网阈值 &gt;30</text>')
-    return f'''<svg viewBox="0 0 {W} {H}" class="chart" role="img" aria-label="各目的区号每小时请求量中位数紧贴现网阈值30">{''.join(out)}</svg>'''
-
-
-def _pdf_font_css():
-    d = os.path.expanduser("~/.fonts")
-    return PDF_FONTS % (d, d, d)
-
-
-NAV = [("summary", "执行摘要"), ("background", "问题背景"), ("timeline", "事件经过"),
-       ("impact", "影响评估"), ("evidence", "判定依据"), ("actions", "已采取措施"),
-       ("why", "为什么没压住"), ("solution", "解决方案"), ("decide", "待决事项"),
-       ("process", "流程改进"), ("caveat", "口径与缺口")]
-
-
-PDF_FONTS = """
-@font-face{font-family:'NotoSC';font-weight:400;src:url('file://%s/NotoSansSC-Regular.otf')}
-@font-face{font-family:'NotoSC';font-weight:700;src:url('file://%s/NotoSansSC-Bold.otf')}
-@font-face{font-family:'NotoSC';font-weight:900;src:url('file://%s/NotoSansSC-Bold.otf')}
-body,.num,.ax,.bval,.endlab,.bval-blue,.bval-orange,.tl .d,.why .wn{font-family:'NotoSC',sans-serif!important}
-.nav{display:none}
-"""
-
-
-def render(m, pdf=False, standalone=False):
-    up, ca, cb = m["up"], m["cand_a"], m["cand_b"]
-    lo, hi = m["cost_day"]
-    nav = "".join(f'<a href="#{i}">{t}</a>' for i, t in NAV)
-    pre_hits = int(ca["攻击前窗命中"]) + int(cb["攻击前窗命中"])
-
-    part1 = f'''<title>LKUS 短信攻击处置看板</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@500;600&display=swap">
-<style>{CSS}{_pdf_font_css() if pdf else ""}</style>
-
-<nav class="nav"><div class="nav-in">{nav}</div></nav>
-<div class="wrap">
-
-<section id="summary">
-  <div class="ribbon">
-    <span class="tag">🔴 尚未压制</span>
-    <span style="color:var(--ink-2);font-size:14px">攻击仍在上行，未出现拐点</span>
-    <span class="day">数据窗口至 2026-09-10 06:32 UTC（北京 14:32）</span>
-  </div>
-  <header style="margin-top:20px">
-    <h1>短信验证码遭黑产刷量 · 第 8 天处置简报</h1>
-    <p class="lede">攻击方持续向<b>我们没有客户的国家</b>刷取验证码短信，每条都由公司真实付费。
-      当前每天仍有 <b class="num">{_f(m['today_attack'])}</b> 条攻击短信发出，是攻击前日均的
-      <b class="num">{m['multiple']}</b> 倍。<b>正常美国用户完全未受影响。</b>
-      两条策略已配置完成、等待审批，<b>上线即可把拦截率从 {m['recall_now']}% 提到 {m['recall_after']}%</b>，
-      且攻击前 25 天回测对美国真实用户零命中。</p>
-    <div class="meta">数据来源：风控请求日志（64 分片源库）+ 短信发送记录，全程只读 · 共 76,764 条风控请求</div>
-  </header>
-  <div class="kpis" style="margin-top:18px">
-    <div class="kpi"><div class="k">每日攻击短信</div><div class="v crit num">{_f(m['today_attack'])}</div>
-      <div class="s">攻击前日均 {_f(m['baseline'])} 条 · <b>↑{m['multiple']}倍</b></div></div>
-    <div class="kpi"><div class="k">当前拦截率</div><div class="v warn num">{m['recall_now']}%</div>
-      <div class="s">仍有 {_f(m['leak_now'])} 条/日漏过</div></div>
-    <div class="kpi"><div class="k">估算日损耗</div><div class="v crit num">${_f(lo)}~{_f(hi)}</div>
-      <div class="s">估算值 · 口径见文末</div></div>
-    <div class="kpi"><div class="k">正常用户影响</div><div class="v good num">0</div>
-      <div class="s">验证码填充率稳定 {m['today_us_fill']}%</div></div>
-    <div class="kpi"><div class="k">已避免损耗</div><div class="v good num">${_f(m['cost_saved'][0])}~{_f(m['cost_saved'][1])}</div>
-      <div class="s">已拦下 {_f(m['blocked_cum'])} 条</div></div>
-  </div>
-</section>
-
-<section id="background">
-  <h2 class="sec">一、问题背景：这是什么攻击</h2>
-  <p class="seclede">先回答最容易被误解的一个问题——<b>我们没有被入侵</b>。这是一类叫「短信刷量」
-    （SMS Pumping / 话务人为增量 AIT）的欺诈，攻击方滥用的是一个完全正常的业务功能。</p>
-  <div class="card">{mechanism_svg()}</div>
+</figure></div>
   <div class="grid2" style="margin-top:16px">
     <div class="card"><h3>为什么打这些国家</h3>
       <p class="sub" style="margin-bottom:10px">攻击目标高度集中在阿尔及利亚、马拉维、白俄罗斯、塔吉克斯坦、
@@ -516,7 +289,7 @@ def render(m, pdf=False, standalone=False):
         <li><b>国际短信结算价高</b>，分成空间大；</li>
         <li><b>电信监管相对宽松</b>，话务分成安排不易被追责；</li>
         <li><b>我们在这些国家没有任何业务</b>，正常情况下几乎不会有验证码请求——
-          攻击前这些区号合计每天只有 {_f(m['baseline'])} 条。</li>
+          攻击前这些区号合计每天只有 66 条。</li>
       </ul></div>
     <div class="card"><h3>行业背景：这不是个案</h3>
       <p class="sub" style="margin-bottom:10px">用于判断这是行业性风险还是我们独有的运维失误：</p>
@@ -535,7 +308,7 @@ def render(m, pdf=False, standalone=False):
   <p class="seclede">时间为 UTC。措施时间取自风控策略表的实际变更记录，不是回忆。</p>
   <div class="card"><ul class="tl">
     <li><div class="d">08-27 ~ 09-02</div><div class="h">攻击前基线</div>
-      <div class="b">非 +1/+86 区号日均发送 {_f(m['baseline'])} 条（区间 {m['base_lo']}~{m['base_hi']}），
+      <div class="b">非 +1/+86 区号日均发送 66 条（区间 30~86），
         验证码填充率约 24%，属正常水平。</div></li>
     <li class="hot"><div class="d">09-03</div><div class="h">攻击起量</div>
       <div class="b">非 +1/+86 发送量跳到 273 条，为基线的 4 倍。填充率同步掉到 8.1%。</div></li>
@@ -547,10 +320,10 @@ def render(m, pdf=False, standalone=False):
     <li class="hot"><div class="d">09-05 ~ 09-08</div><div class="h">新增上线策略 0 条</div>
       <div class="b">这 4 天内没有新的防护策略生效，攻击量继续爬升至 2,076 条/日。</div></li>
     <li><div class="d">09-09</div><div class="h">上线 2 条新策略</div>
-      <div class="b">其中一条按「来源国家不是美国」过滤——但攻击方已有 {m['us_ip_share']}% 的流量走美国机房代理，
-        这部分被设计性放过。当日攻击量仍创新高 {_f(m['today_attack'])} 条。</div></li>
+      <div class="b">其中一条按「来源国家不是美国」过滤——但攻击方已有 23.6% 的流量走美国机房代理，
+        这部分被设计性放过。当日攻击量仍创新高 2,337 条。</div></li>
     <li class="hot"><div class="d">09-10（当前）</div><div class="h">尚未压制</div>
-      <div class="b">拦截率 {m['recall_now']}%，每日仍有 {_f(m['leak_now'])} 条漏过并实际发出。</div></li>
+      <div class="b">拦截率 53.8%，每日仍有 2,836 条漏过并实际发出。</div></li>
   </ul></div>
 </section>
 
@@ -560,36 +333,37 @@ def render(m, pdf=False, standalone=False):
   <div class="card">
     <h3>攻击短信量仍在上行</h3>
     <p class="sub">每日实际发出的验证码短信条数。9/9 新策略生效当天，攻击量仍创新高。</p>
-    {trend_svg(up)}
+    <svg viewBox="0 0 760 300" class="chart" role="img" aria-label="每日实发短信趋势，攻击流量自9月3日起飙升且未见拐点">
+<line x1="54" y1="213.8" x2="744" y2="213.8" class="grid"/><text x="44" y="217.8" class="ax" text-anchor="end">500</text><line x1="54" y1="167.5" x2="744" y2="167.5" class="grid"/><text x="44" y="171.5" class="ax" text-anchor="end">1,000</text><line x1="54" y1="121.3" x2="744" y2="121.3" class="grid"/><text x="44" y="125.3" class="ax" text-anchor="end">1,500</text><line x1="54" y1="75.1" x2="744" y2="75.1" class="grid"/><text x="44" y="79.1" class="ax" text-anchor="end">2,000</text><line x1="54" y1="28.9" x2="744" y2="28.9" class="grid"/><text x="44" y="32.9" class="ax" text-anchor="end">2,500</text><text x="54.0" y="280" class="ax" text-anchor="middle">08-09</text><text x="120.8" y="280" class="ax" text-anchor="middle">08-12</text><text x="187.5" y="280" class="ax" text-anchor="middle">08-15</text><text x="254.3" y="280" class="ax" text-anchor="middle">08-18</text><text x="321.1" y="280" class="ax" text-anchor="middle">08-21</text><text x="387.9" y="280" class="ax" text-anchor="middle">08-24</text><text x="454.6" y="280" class="ax" text-anchor="middle">08-27</text><text x="521.4" y="280" class="ax" text-anchor="middle">08-30</text><text x="588.2" y="280" class="ax" text-anchor="middle">09-02</text><text x="655.0" y="280" class="ax" text-anchor="middle">09-05</text><text x="721.7" y="280" class="ax" text-anchor="middle">09-08</text><line x1="610.5" y1="18" x2="610.5" y2="260" class="mark"/><text x="616.5" y="30" class="markt" text-anchor="start">9/3 攻击起量</text><line x1="744.0" y1="18" x2="744.0" y2="260" class="mark"/><text x="738.0" y="30" class="markt" text-anchor="end">9/9 新策略生效</text><path d="M54.0,163.9 L76.3,169.5 L98.5,154.1 L120.8,152.3 L143.0,157.4 L165.3,160.0 L187.5,156.4 L209.8,171.9 L232.1,179.2 L254.3,154.7 L276.6,153.3 L298.8,174.6 L321.1,167.5 L343.4,162.8 L365.6,167.4 L387.9,179.3 L410.1,169.4 L432.4,178.1 L454.6,189.5 L476.9,168.4 L499.2,160.5 L521.4,166.2 L543.7,169.4 L565.9,171.0 L588.2,156.5 L610.5,151.8 L632.7,160.1 L655.0,147.7 L677.2,158.1 L699.5,175.9 L721.7,136.6 L744.0,134.0" class="s-blue"/><path d="M54.0,256.5 L76.3,256.7 L98.5,256.5 L120.8,255.6 L143.0,254.9 L165.3,255.5 L187.5,254.9 L209.8,254.3 L232.1,253.5 L254.3,255.7 L276.6,253.0 L298.8,253.8 L321.1,253.1 L343.4,253.2 L365.6,253.3 L387.9,254.5 L410.1,255.7 L432.4,254.5 L454.6,257.2 L476.9,253.3 L499.2,255.2 L521.4,253.2 L543.7,253.9 L565.9,252.6 L588.2,252.0 L610.5,234.8 L632.7,148.0 L655.0,107.6 L677.2,88.5 L699.5,85.1 L721.7,68.1 L744.0,43.9" class="s-orange"/>
+<circle cx="744.0" cy="43.9" r="4.5" class="dot-orange"/>
+<text x="736.0" y="31.9" class="endlab" text-anchor="end">2,337</text></svg>
     <div class="legend"><span><i style="background:var(--blue)"></i>正常美国用户（+1）</span>
       <span><i style="background:var(--orange)"></i>攻击目标区号（其他国家）</span></div>
   </div>
   <div class="grid2" style="margin-top:16px">
     <div class="card"><h3>成本影响（估算）</h3>
       <div class="tblwrap"><table style="min-width:auto"><tbody>
-        <tr><td>当前日损耗</td><td class="num" style="text-align:right;color:var(--crit);font-weight:700">${_f(lo)} ~ ${_f(hi)}</td></tr>
-        <tr><td>09-03 起累计已发出（{_f(m['sent_cum'])} 条）</td><td class="num" style="text-align:right">${_f(m['cost_cum'][0])} ~ ${_f(m['cost_cum'][1])}</td></tr>
-        <tr><td>同期已拦截（{_f(m['blocked_cum'])} 条）</td><td class="num" style="text-align:right;color:var(--good);font-weight:700">已避免 ${_f(m['cost_saved'][0])} ~ ${_f(m['cost_saved'][1])}</td></tr>
-        <tr><td>若不处置，按当前量续 30 天</td><td class="num" style="text-align:right;color:var(--crit);font-weight:700">${_f(m['cost_month'][0])} ~ ${_f(m['cost_month'][1])}</td></tr>
-        <tr><td>启用待批策略后，每月可减少</td><td class="num" style="text-align:right;color:var(--good);font-weight:700">${_f(m['save_month'][0])} ~ ${_f(m['save_month'][1])}</td></tr>
+        <tr><td>当前日损耗</td><td class="num" style="text-align:right;color:var(--crit);font-weight:700">$70 ~ $304</td></tr>
+        <tr><td>09-03 起累计已发出（11,292 条）</td><td class="num" style="text-align:right">$339 ~ $1,468</td></tr>
+        <tr><td>同期已拦截（19,092 条）</td><td class="num" style="text-align:right;color:var(--good);font-weight:700">已避免 $573 ~ $2,482</td></tr>
+        <tr><td>若不处置，按当前量续 30 天</td><td class="num" style="text-align:right;color:var(--crit);font-weight:700">$2,103 ~ $9,114</td></tr>
+        <tr><td>启用待批策略后，每月可减少</td><td class="num" style="text-align:right;color:var(--good);font-weight:700">$1,885 ~ $8,167</td></tr>
       </tbody></table></div>
-      <p style="margin:12px 0 0;font-size:12.5px;color:var(--ink-3)">金额为<b>估算值</b>，单价假设 ${UNIT_LO}~${UNIT_HI}/条，详见文末口径说明。</p>
+      <p style="margin:12px 0 0;font-size:12.5px;color:var(--ink-3)">金额为<b>估算值</b>，单价假设 $0.03~$0.13/条，详见文末口径说明。</p>
     </div>
     <div class="card"><h3>用户影响：无</h3>
       <p class="sub">正常美国用户的发送量与验证码填充率在整个攻击期间保持稳定，
         当前拦截策略也未误拦任何正常用户。</p>
       <div class="tblwrap"><table style="min-width:auto"><tbody>
-        <tr><td>+1 用户日发送量</td><td class="num" style="text-align:right">{_f(m['today_us_send'])} 条（稳定 900~1,400）</td></tr>
-        <tr><td>+1 验证码填充率</td><td class="num" style="text-align:right;color:var(--good);font-weight:700">{m['today_us_fill']}%（全程 94~98%）</td></tr>
+        <tr><td>+1 用户日发送量</td><td class="num" style="text-align:right">1,363 条（稳定 900~1,400）</td></tr>
+        <tr><td>+1 验证码填充率</td><td class="num" style="text-align:right;color:var(--good);font-weight:700">95.0%（全程 94~98%）</td></tr>
         <tr><td>命中样本中误拦正常用户</td><td class="num" style="text-align:right;color:var(--good);font-weight:700">0 条</td></tr>
-        <tr><td>待批策略攻击前 25 天回测</td><td class="num" style="text-align:right;color:var(--good);font-weight:700">命中 {_f(pre_hits)} 条，美国用户 0 条</td></tr>
+        <tr><td>待批策略攻击前 25 天回测</td><td class="num" style="text-align:right;color:var(--good);font-weight:700">命中 1,280 条，美国用户 0 条</td></tr>
       </tbody></table></div>
     </div>
   </div>
 </section>
-'''
 
-    part2 = f'''
 <section id="evidence">
   <h2 class="sec">四、判定依据：凭什么确定是黑产</h2>
   <p class="seclede">按风控 SOP，<b>不得凭单一特征定性，需 ≥2 类独立特征交叉印证</b>。
@@ -599,22 +373,22 @@ def render(m, pdf=False, standalone=False):
     <div class="card"><h3>证据一：短信发出去没有任何人使用</h3>
       <p class="sub">「填充率」＝ 收到短信后真正输入了验证码的比例。这是最直接的一条：
         正常用户几乎都会输入，攻击方从不输入——因为他们要的不是验证码本身。</p>
-      {fill_svg(m)}
+      <svg viewBox="0 0 760 150" class="chart" role="img" aria-label="验证码填充率对比，正常用户95%，攻击目标区号0.6%"><text x="114" y="55" class="blab" text-anchor="end">正常美国用户</text><rect x="130" y="34" width="534" height="30" rx="4" class="track"/><rect x="130" y="34" width="507.3" height="30" rx="4" class="bar-blue"/><text x="678" y="55" class="bval-blue">95.0%</text><text x="114" y="117" class="blab" text-anchor="end">攻击目标区号</text><rect x="130" y="96" width="534" height="30" rx="4" class="track"/><rect x="130" y="96" width="3.2" height="30" rx="4" class="bar-orange"/><text x="678" y="117" class="bval-orange">0.6%</text></svg>
       <div class="legend"><span>数据日期 2026-09-09 · 攻击前该指标约 24%，攻击开始后塌到 1% 以下</span></div>
     </div>
     <div class="card"><h3>证据二：设备画像与真实用户完全不同</h3>
       <p class="sub">攻击流量的机型清一色是在美国市场几乎没有零售存在的低价安卓机；
-        而真实美国用户中 iPhone 占 <b>{m['iphone_p1']}%</b>，攻击流量中只有 <b>{m['iphone_atk']}%</b>。</p>
-      {device_svg(m['dev'], m)}
-      <div class="legend"><span>攻击流量机型 TOP6 · 同期正常美国用户 iPhone 占 {m['iphone_p1']}%</span></div>
+        而真实美国用户中 iPhone 占 <b>84.5%</b>，攻击流量中只有 <b>0.6%</b>。</p>
+      <svg viewBox="0 0 760 198" class="chart" role="img" aria-label="攻击流量的设备机型全部为低价安卓机，无iPhone"><text x="118" y="26" class="blab" text-anchor="end">V2310</text><rect x="132" y="10" width="524.0" height="21" rx="3" class="bar-orange"/><text x="665.0" y="26" class="bval">9.0%</text><text x="118" y="56" class="blab" text-anchor="end">Infinix X6725</text><rect x="132" y="40" width="431.4" height="21" rx="3" class="bar-orange"/><text x="572.4" y="56" class="bval">7.4%</text><text x="118" y="86" class="blab" text-anchor="end">Infinix X688B</text><rect x="132" y="70" width="415.8" height="21" rx="3" class="bar-orange"/><text x="556.8" y="86" class="bval">7.1%</text><text x="118" y="116" class="blab" text-anchor="end">TECNO CH6i</text><rect x="132" y="100" width="351.7" height="21" rx="3" class="bar-orange"/><text x="492.7" y="116" class="bval">6.0%</text><text x="118" y="146" class="blab" text-anchor="end">NE2211</text><rect x="132" y="130" width="338.0" height="21" rx="3" class="bar-orange"/><text x="479.0" y="146" class="bval">5.8%</text><text x="118" y="176" class="blab" text-anchor="end">Infinix X6532</text><rect x="132" y="160" width="306.0" height="21" rx="3" class="bar-orange"/><text x="447.0" y="176" class="bval">5.2%</text></svg>
+      <div class="legend"><span>攻击流量机型 TOP6 · 同期正常美国用户 iPhone 占 84.5%</span></div>
     </div>
   </div>
 
   <div class="grid2" style="margin-top:16px">
     <div class="card"><h3>证据三：来源集中在少数几个境外出口</h3>
-      <p class="sub">按来源 IP 国家统计（09-04 起）。值得注意的是<b>美国机房代理已占 {m['us_ip_share']}%</b>——
+      <p class="sub">按来源 IP 国家统计（09-04 起）。值得注意的是<b>美国机房代理已占 23.6%</b>——
         攻击方在换出口，这也是 9/9 那条按国家过滤的策略失效的原因。</p>
-      {source_svg(m['src'])}
+      <svg viewBox="0 0 760 288" class="chart" role="img" aria-label="攻击来源IP国家分布，巴基斯坦德国美国为前三"><text x="110" y="26" class="blab" text-anchor="end">巴基斯坦</text><rect x="124" y="10" width="532.0" height="21" rx="3" class="bar-blue"/><text x="665.0" y="26" class="bval">10,312　29.2%</text><text x="110" y="56" class="blab" text-anchor="end">德国</text><rect x="124" y="40" width="448.3" height="21" rx="3" class="bar-blue"/><text x="581.3" y="56" class="bval">8,690　24.6%</text><text x="110" y="86" class="blab" text-anchor="end">美国</text><rect x="124" y="70" width="430.0" height="21" rx="3" class="bar-orange"/><text x="563.0" y="86" class="bval">8,334　23.6%</text><text x="110" y="116" class="blab" text-anchor="end">英国</text><rect x="124" y="100" width="60.9" height="21" rx="3" class="bar-blue"/><text x="193.9" y="116" class="bval">1,181　3.3%</text><text x="110" y="146" class="blab" text-anchor="end">新加坡</text><rect x="124" y="130" width="39.2" height="21" rx="3" class="bar-blue"/><text x="172.2" y="146" class="bval">759　2.1%</text><text x="110" y="176" class="blab" text-anchor="end">巴西</text><rect x="124" y="160" width="33.7" height="21" rx="3" class="bar-blue"/><text x="166.7" y="176" class="bval">654　1.9%</text><text x="110" y="206" class="blab" text-anchor="end">法国</text><rect x="124" y="190" width="29.5" height="21" rx="3" class="bar-blue"/><text x="162.5" y="206" class="bval">572　1.6%</text><text x="110" y="236" class="blab" text-anchor="end">巴拿马</text><rect x="124" y="220" width="21.7" height="21" rx="3" class="bar-blue"/><text x="154.7" y="236" class="bval">421　1.2%</text><text x="110" y="266" class="blab" text-anchor="end">其他</text><rect x="124" y="250" width="226.1" height="21" rx="3" class="bar-blue"/><text x="359.1" y="266" class="bval">4,383　12.4%</text></svg>
       <div class="legend"><span><i style="background:var(--blue)"></i>美国机房代理（被现有策略设计性放过）
         　<i style="background:var(--orange)"></i>其他来源</span></div>
     </div>
@@ -624,17 +398,17 @@ def render(m, pdf=False, standalone=False):
         <thead><tr><th>特征</th><th style="text-align:right">攻击流量</th><th style="text-align:right">正常用户</th></tr></thead>
         <tbody>
           <tr><td>一个 IP 关联 &gt;3 个手机号的比例</td>
-            <td class="num" style="text-align:right;color:var(--crit);font-weight:700">{m['us_ip_multi']}%</td>
-            <td class="num" style="text-align:right;color:var(--good)">{m['p1_ip_multi']}%</td></tr>
+            <td class="num" style="text-align:right;color:var(--crit);font-weight:700">66.7%</td>
+            <td class="num" style="text-align:right;color:var(--good)">1.4%</td></tr>
           <tr><td>只调短信接口、从不登录下单的比例</td>
-            <td class="num" style="text-align:right;color:var(--crit);font-weight:700">{m['us_pushonly']}%</td>
-            <td class="num" style="text-align:right;color:var(--good)">{m['p1_pushonly']}%</td></tr>
+            <td class="num" style="text-align:right;color:var(--crit);font-weight:700">98.8%</td>
+            <td class="num" style="text-align:right;color:var(--good)">2.4%</td></tr>
           <tr><td>iPhone 占比</td>
-            <td class="num" style="text-align:right;color:var(--crit);font-weight:700">{m['iphone_atk']}%</td>
-            <td class="num" style="text-align:right;color:var(--good)">{m['iphone_p1']}%</td></tr>
+            <td class="num" style="text-align:right;color:var(--crit);font-weight:700">0.6%</td>
+            <td class="num" style="text-align:right;color:var(--good)">84.5%</td></tr>
           <tr><td>验证码填充率</td>
-            <td class="num" style="text-align:right;color:var(--crit);font-weight:700">{m['today_fill']}%</td>
-            <td class="num" style="text-align:right;color:var(--good)">{m['today_us_fill']}%</td></tr>
+            <td class="num" style="text-align:right;color:var(--crit);font-weight:700">0.6%</td>
+            <td class="num" style="text-align:right;color:var(--good)">95.0%</td></tr>
         </tbody></table></div>
       <p style="margin:12px 0 0;font-size:12.5px;color:var(--ink-3)">
         另有：32.6% 的号码在 24 小时内被 ≥2 个不同国家的 IP 请求过；
@@ -645,12 +419,12 @@ def render(m, pdf=False, standalone=False):
 
 <section id="actions">
   <h2 class="sec">五、已采取的措施与当前效果</h2>
-  <p class="seclede">措施是有效果的——已拦下 {_f(m['blocked_cum'])} 条，避免了对应成本。
+  <p class="seclede">措施是有效果的——已拦下 19,092 条，避免了对应成本。
     但拦截率长期停在五成上下，没有随时间改善。</p>
   <div class="card">
     <h3>逐日拦截与漏过</h3>
     <p class="sub">柱上百分比为当日拦截率。可以看到 09-05 之后拦截率基本横盘，说明现有规则已经到顶。</p>
-    {daily_recall_svg(m['byday'])}
+    <svg viewBox="0 0 760 260" class="chart" role="img" aria-label="逐日拦截与漏过对比，拦截率长期停在五成上下"><line x1="54" y1="191.4" x2="744" y2="191.4" class="grid"/><text x="44" y="195.4" class="ax" text-anchor="end">1,000</text><line x1="54" y1="166.8" x2="744" y2="166.8" class="grid"/><text x="44" y="170.8" class="ax" text-anchor="end">2,000</text><line x1="54" y1="142.2" x2="744" y2="142.2" class="grid"/><text x="44" y="146.2" class="ax" text-anchor="end">3,000</text><line x1="54" y1="117.6" x2="744" y2="117.6" class="grid"/><text x="44" y="121.6" class="ax" text-anchor="end">4,000</text><line x1="54" y1="93.0" x2="744" y2="93.0" class="grid"/><text x="44" y="97.0" class="ax" text-anchor="end">5,000</text><line x1="54" y1="68.4" x2="744" y2="68.4" class="grid"/><text x="44" y="72.4" class="ax" text-anchor="end">6,000</text><line x1="54" y1="43.8" x2="744" y2="43.8" class="grid"/><text x="44" y="47.8" class="ax" text-anchor="end">7,000</text><rect x="69.8" y="209.8" width="25.9" height="6.2" class="bar-good"/><rect x="98.6" y="205.7" width="25.9" height="10.3" class="bar-orange"/><text x="97.1" y="234" class="ax" text-anchor="middle">09-03</text><text x="97.1" y="198.7" class="bval" text-anchor="middle">37.6%</text><rect x="156.0" y="198.4" width="25.9" height="17.6" class="bar-good"/><rect x="184.9" y="179.0" width="25.9" height="37.0" class="bar-orange"/><text x="183.4" y="234" class="ax" text-anchor="middle">09-04</text><text x="183.4" y="172.0" class="bval" text-anchor="middle">32.3%</text><rect x="242.2" y="132.0" width="25.9" height="84.0" class="bar-good"/><rect x="271.1" y="163.5" width="25.9" height="52.5" class="bar-orange"/><text x="269.6" y="234" class="ax" text-anchor="middle">09-05</text><text x="269.6" y="125.0" class="bval" text-anchor="middle">61.5%</text><rect x="328.5" y="114.1" width="25.9" height="101.9" class="bar-good"/><rect x="357.4" y="151.8" width="25.9" height="64.2" class="bar-orange"/><text x="355.9" y="234" class="ax" text-anchor="middle">09-06</text><text x="355.9" y="107.1" class="bval" text-anchor="middle">61.4%</text><rect x="414.8" y="133.6" width="25.9" height="82.4" class="bar-good"/><rect x="443.6" y="151.6" width="25.9" height="64.4" class="bar-orange"/><text x="442.1" y="234" class="ax" text-anchor="middle">09-07</text><text x="442.1" y="126.6" class="bval" text-anchor="middle">56.1%</text><rect x="501.0" y="137.2" width="25.9" height="78.8" class="bar-good"/><rect x="529.9" y="143.8" width="25.9" height="72.2" class="bar-orange"/><text x="528.4" y="234" class="ax" text-anchor="middle">09-08</text><text x="528.4" y="130.2" class="bval" text-anchor="middle">52.2%</text><rect x="587.2" y="136.3" width="25.9" height="79.7" class="bar-good"/><rect x="616.1" y="143.7" width="25.9" height="72.3" class="bar-orange"/><text x="614.6" y="234" class="ax" text-anchor="middle">09-09</text><text x="614.6" y="129.3" class="bval" text-anchor="middle">52.5%</text><rect x="673.5" y="190.3" width="25.9" height="25.7" class="bar-good"/><rect x="702.4" y="195.0" width="25.9" height="21.0" class="bar-orange"/><text x="700.9" y="234" class="ax" text-anchor="middle">09-10</text><text x="700.9" y="183.3" class="bval" text-anchor="middle">55.0%</text></svg>
     <div class="legend"><span><i style="background:var(--good)"></i>已拦截</span>
       <span><i style="background:var(--orange)"></i>漏过并实际发出</span></div>
   </div>
@@ -663,23 +437,21 @@ def render(m, pdf=False, standalone=False):
     <div class="w"><div class="wn">30.1%</div><div class="wt">攻击贴着我们的阈值跑</div>
       <div class="wd">现网主力规则是「单区号每小时超过 30 次」才拦。实测攻击把每个区号每小时压在
         24~33 次，紧贴阈值——三成攻击请求根本碰不到这条规则。<b>把阈值降到 15 即可压到 5.3%。</b></div></div>
-    <div class="w"><div class="wn">{m['us_ip_share']}%</div><div class="wt">新策略方向漏掉了美国 IP</div>
-      <div class="wd">9/9 上线的策略按「来源国家不是美国」过滤，而攻击方已有 {m['us_ip_share']}% 的请求
+    <div class="w"><div class="wn">23.6%</div><div class="wt">新策略方向漏掉了美国 IP</div>
+      <div class="wd">9/9 上线的策略按「来源国家不是美国」过滤，而攻击方已有 23.6% 的请求
         来自美国机房代理，<b>被设计性放过</b>。经四类特征交叉确认，是同一伙攻击方换了出口。</div></div>
     <div class="w"><div class="wn">6 天</div><div class="wt">最有效的策略一直没生效</div>
       <div class="wd">两条最有效的策略 9/4 就已配置完成，但一直停在<b>「已配置但未生效」</b>的观察状态。
-        它们一条就能补回 {ca['占漏召回%']}% 的漏拦量，且攻击前回测零误拦。</div></div>
+        它们一条就能补回 56.4% 的漏拦量，且攻击前回测零误拦。</div></div>
   </div>
   <div class="card" style="margin-top:16px">
     <h3>攻击是按我们的阈值校准过的</h3>
     <p class="sub">各目的区号每小时请求量的中位数，与现网阈值 30 的关系。这种贴合不是巧合。</p>
-    {threshold_svg(m['evas'])}
+    <svg viewBox="0 0 760 310" class="chart" role="img" aria-label="各目的区号每小时请求量中位数紧贴现网阈值30"><text x="78" y="27" class="blab" text-anchor="end">+504</text><rect x="92" y="12" width="345.6" height="19" rx="3" class="bar-blue"/><text x="446.6" y="27" class="bval">中位 24</text><text x="78" y="54" class="blab" text-anchor="end">+220</text><rect x="92" y="39" width="367.2" height="19" rx="3" class="bar-blue"/><text x="468.2" y="54" class="bval">中位 26</text><text x="78" y="81" class="blab" text-anchor="end">+223</text><rect x="92" y="66" width="367.2" height="19" rx="3" class="bar-blue"/><text x="468.2" y="81" class="bval">中位 26</text><text x="78" y="108" class="blab" text-anchor="end">+264</text><rect x="92" y="93" width="403.2" height="19" rx="3" class="bar-blue"/><text x="504.2" y="108" class="bval">中位 28</text><text x="78" y="135" class="blab" text-anchor="end">+992</text><rect x="92" y="120" width="410.4" height="19" rx="3" class="bar-blue"/><text x="511.4" y="135" class="bval">中位 28</text><text x="78" y="162" class="blab" text-anchor="end">+213</text><rect x="92" y="147" width="432.0" height="19" rx="3" class="bar-blue"/><text x="533.0" y="162" class="bval">中位 30</text><text x="78" y="189" class="blab" text-anchor="end">+233</text><rect x="92" y="174" width="439.2" height="19" rx="3" class="bar-blue"/><text x="540.2" y="189" class="bval">中位 30</text><text x="78" y="216" class="blab" text-anchor="end">+265</text><rect x="92" y="201" width="460.8" height="19" rx="3" class="bar-blue"/><text x="561.8" y="216" class="bval">中位 32</text><text x="78" y="243" class="blab" text-anchor="end">+386</text><rect x="92" y="228" width="460.8" height="19" rx="3" class="bar-blue"/><text x="561.8" y="243" class="bval">中位 32</text><text x="78" y="270" class="blab" text-anchor="end">+375</text><rect x="92" y="255" width="460.8" height="19" rx="3" class="bar-blue"/><text x="561.8" y="270" class="bval">中位 32</text><line x1="524.0" y1="6" x2="524.0" y2="286" stroke="var(--orange)" stroke-width="2"/><text x="531.0" y="300" class="lab-m" style="fill:var(--orange);font-size:12px;font-weight:700">现网阈值 &gt;30</text></svg>
     <div class="legend"><span>48.4% 的（区号,小时）组合 ≤30 次，承载了 30.1% 的攻击请求</span></div>
   </div>
 </section>
-'''
 
-    part3 = f'''
 <section id="solution">
   <h2 class="sec">七、解决方案详解</h2>
   <p class="seclede">每条措施说明<b>做什么、针对攻击的哪个特征、预期效果、风险</b>，
@@ -690,8 +462,8 @@ def render(m, pdf=False, standalone=False):
     <dl>
       <dt>做什么</dt><dd>把两条已配置但停在观察状态的策略正式启用：对<b>单个国家区号一天内请求次数超过阈值</b>的流量直接拦截（分别覆盖高风险名单内与名单外的区号）。</dd>
       <dt>为什么有效</dt><dd>攻击方能把<b>每小时</b>频次压到阈值以下，但<b>一整天</b>的总量压不下来——他们要的就是量。这条规则打的正是这个软肋，且与来源 IP 国家无关，<b>美国机房代理同样会被拦到</b>。</dd>
-      <dt>预期效果</dt><dd>拦截率 <b class="num">{m['recall_now']}% → {m['recall_after']}%</b>；每日漏出从 {_f(m['leak_now'])} 条降到约 <b class="num">{_f(m['resid_day'])}</b> 条；每月减少损耗约 <b class="num">${_f(m['save_month'][0])}~{_f(m['save_month'][1])}</b>。</dd>
-      <dt>风险</dt><dd><b>极低。</b>用攻击前 25 天的真实流量回测，两条策略合计命中 {_f(pre_hits)} 条，其中<b>美国真实用户 0 条</b>、判为正常用户 2 条。</dd>
+      <dt>预期效果</dt><dd>拦截率 <b class="num">53.8% → 95.2%</b>；每日漏出从 2,836 条降到约 <b class="num">243</b> 条；每月减少损耗约 <b class="num">$1,885~8,167</b>。</dd>
+      <dt>风险</dt><dd><b>极低。</b>用攻击前 25 天的真实流量回测，两条策略合计命中 1,280 条，其中<b>美国真实用户 0 条</b>、判为正常用户 2 条。</dd>
       <dt>需要谁</dt><dd>田志鲔配置 · <b>段枝宏审批</b>（因场景调用量低于 SOP 绝对门槛，需走应急审批）</dd>
     </dl>
   </div>
@@ -738,8 +510,8 @@ def render(m, pdf=False, standalone=False):
     <tbody>
       <tr><td><span class="pill p-now">立即</span></td>
         <td><b>启用两条已配置策略</b><br><span style="color:var(--ink-2)">「单区号日频次」规则</span></td>
-        <td>拦截率 <b class="num">{m['recall_now']}% → {m['recall_after']}%</b><br>日漏出降至约 <span class="num">{_f(m['resid_day'])}</span> 条</td>
-        <td><b>极低</b>：攻击前 25 天回测命中 <span class="num">{_f(pre_hits)}</span> 条，美国真实用户 <b class="num">0</b> 条</td>
+        <td>拦截率 <b class="num">53.8% → 95.2%</b><br>日漏出降至约 <span class="num">243</span> 条</td>
+        <td><b>极低</b>：攻击前 25 天回测命中 <span class="num">1,280</span> 条，美国真实用户 <b class="num">0</b> 条</td>
         <td>田志鲔配置<br><b>段枝宏审批</b></td></tr>
       <tr><td><span class="pill p-now">立即</span></td>
         <td><b>下调单区号频次阈值</b><br><span style="color:var(--ink-2)">每小时 30 次 → 15 次</span></td>
@@ -769,7 +541,7 @@ def render(m, pdf=False, standalone=False):
     <thead><tr><th>观察到的现象</th><th>影响</th><th>建议</th></tr></thead>
     <tbody>
       <tr><td>两条最有效的策略在「已配置但未生效」状态停留 <b>6 天</b></td>
-        <td>自 09-04 配置完成起，累计发出约 {_f(m['sent_since_cfg'])} 条攻击短信</td>
+        <td>自 09-04 配置完成起，累计发出约 11,019 条攻击短信</td>
         <td>应急期为观察状态设定<b>时长上限与到期自动提醒</b>，超时未决需上报</td></tr>
       <tr><td>09-05 ~ 09-08 连续 <b>4 天</b>新增生效策略 0 条</td>
         <td>攻击量在这 4 天从 1,648 爬到 2,076 条/日，与国内「24 小时内压制」的标准存在差距</td>
@@ -790,7 +562,7 @@ def render(m, pdf=False, standalone=False):
   <h2 class="sec">十、口径说明与已知缺口</h2>
   <div class="note">
     <b>关于成本数字（请注意）：</b>攻击流量全部走 Twilio 通道，而<b>该通道的每条单价数据库中未记录</b>
-    （仅 AWS 通道有记录），因此本文所有金额为<b>估算值</b>，按<b>单价 ${UNIT_LO}~${UNIT_HI}/条</b>测算。
+    （仅 AWS 通道有记录），因此本文所有金额为<b>估算值</b>，按<b>单价 $0.03~$0.13/条</b>测算。
     上限参考行业公开基准（某防护厂商 2025 年数据集拦截 2,430 万条黑产验证码请求、避免约 326 万美元成本，
     折合约 $0.134/条）。<b>精确金额需以 Twilio 账单为准，建议同步向财务 / upush 侧调取 9 月账单核实。</b>
   </div>
@@ -809,7 +581,7 @@ def render(m, pdf=False, standalone=False):
     <summary>附录：技术细节与详细报告（供风控 / DBA 下钻）</summary>
     <ul>
       <li><b>判定标准</b>：遵循风控 SOP —— 需 ≥2 类独立特征交叉印证；单一特征一律标注「暂无法判断」，
-        未计入黑产。命中样本 {_f(m['black_total'])} 条中误拦正常用户 0 条。</li>
+        未计入黑产。命中样本 6,137 条中误拦正常用户 0 条。</li>
       <li><b>涉及策略</b>：建议启用的两条为 <code>strategy_MGj5bfGOijOi</code>、<code>strategy_x37TInaHsvPQ</code>；
         9/9 已上线的为 <code>strategy_uKSgJAVWhWlU</code>；待评估的为 <code>strategy_ARqkLD7E3JaK</code>。
         另有一条 <code>strategy_aEw2XWL4QIYx</code> 看似增量召回高，但无区号护栏、
@@ -825,44 +597,6 @@ def render(m, pdf=False, standalone=False):
 </section>
 
 <footer>瑞幸咖啡北美 · 信息安全 / 数据库团队 · 本看板由风控源库数据自动生成，数字可追溯至明细 CSV</footer>
-</div>'''
-    doc = part1 + part2 + part3
-    if standalone:
-        head, _, tail = doc.partition("<nav class=")
-        doc = ('<!doctype html>\n<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n'
-               '<meta name="viewport" content="width=device-width,initial-scale=1">\n'
-               + head + "</head>\n<body>\n<nav class=" + tail
-               + "\n</body>\n</html>")
-    return doc
-
-
-def main():
-    m = load_all()
-    html = render(m)
-    with open(OUT_HTML, "w", encoding="utf-8") as fh:
-        fh.write(html)
-    print(f"wrote {OUT_HTML}  ({len(html):,} chars)")
-    print(f"  攻击 {m['today_attack']:,}/天 · 基线 {m['baseline']:.0f} · {m['multiple']}x · "
-          f"拦截 {m['recall_now']}% · 漏 {m['leak_now']:,}")
-
-
-if __name__ == "__main__":
-    main()
-
-
-def build_standalone(path=None):
-    """A single self-contained .html the user can attach to an email / Feishu message.
-
-    Deliberately NOT a PDF: this container has no browser and its text stack cannot
-    shape CJK, so every PDF it renders drops Chinese glyphs. Opening this file and
-    pressing Ctrl/Cmd+P produces a correct PDF in one step -- print CSS is included.
-    Chinese renders offline via the system stack (PingFang SC / Microsoft YaHei);
-    the Google Fonts link is only an online upgrade.
-    """
-    m = load_all()
-    html = render(m, standalone=True)
-    path = path or os.path.join(F.OUT, "LKUS短信攻击处置简报.html")
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.write(html)
-    print(f"wrote {path}  ({os.path.getsize(path):,} bytes)")
-    return path
+</div>
+</body>
+</html>

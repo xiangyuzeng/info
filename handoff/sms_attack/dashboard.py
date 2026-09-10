@@ -231,6 +231,38 @@ summary{cursor:pointer;padding:15px 0;font-weight:700;font-size:14.5px}
 summary:focus-visible{outline:2px solid var(--blue);outline-offset:3px;border-radius:4px}
 details ul{margin:0;padding-left:20px;color:var(--ink-2);font-size:13.5px;line-height:1.8}
 footer{color:var(--ink-3);font-size:12px;text-align:center;padding-top:6px}
+
+/* ---- print / PDF ---------------------------------------------------- */
+@page{size:A4;margin:14mm 12mm}
+@media print{
+  :root,:root[data-theme="dark"]{
+    --ground:#FFFFFF; --surface:#FFFFFF; --surface-2:#F6F8FA;
+    --ink:#16243A; --ink-2:#4A5666; --ink-3:#6E7885;
+    --line:#C9D0DA; --navy:#1F3864; --on-navy:#FFFFFF;
+    --crit:#B02A24; --good:#176B42; --warn:#9A6008;
+    --blue:#1F63BC; --orange:#C9501F;
+    --crit-bg:#FBEDEC; --good-bg:#EAF5EF; --warn-bg:#FDF4E6; --blue-bg:#ECF3FC;
+  }
+  body{background:#fff;font-size:10.2pt;line-height:1.55}
+  .nav{display:none}
+  .wrap{max-width:none;padding:0;gap:12px}
+  h2.sec{break-after:avoid;font-size:14pt;margin-top:8px}
+  p.seclede{font-size:9.4pt}
+  .card,.sol,.kpi,.why .w,.note,details,figure{break-inside:avoid}
+  section{break-inside:auto}
+  #background,#solution,#decide{break-before:page}
+  tr,li{break-inside:avoid}
+  thead{display:table-header-group}
+  table{min-width:0!important;font-size:9pt}
+  .tblwrap{overflow:visible}
+  .kpis{grid-template-columns:repeat(5,1fr)}
+  .kpi .v{font-size:16pt}
+  header h1{font-size:19pt}
+  header .lede{font-size:10.6pt}
+  summary{list-style:none}
+  a{color:inherit;text-decoration:none}
+  footer{margin-top:10px}
+}
 @media (max-width:640px){
   header h1{font-size:22px} .kpi .v{font-size:23px} .wrap{padding:16px 14px 52px}
   .card{padding:16px 15px} h2.sec{font-size:18px}
@@ -407,13 +439,27 @@ def threshold_svg(evas):
     return f'''<svg viewBox="0 0 {W} {H}" class="chart" role="img" aria-label="各目的区号每小时请求量中位数紧贴现网阈值30">{''.join(out)}</svg>'''
 
 
+def _pdf_font_css():
+    d = os.path.expanduser("~/.fonts")
+    return PDF_FONTS % (d, d, d)
+
+
 NAV = [("summary", "执行摘要"), ("background", "问题背景"), ("timeline", "事件经过"),
        ("impact", "影响评估"), ("evidence", "判定依据"), ("actions", "已采取措施"),
        ("why", "为什么没压住"), ("solution", "解决方案"), ("decide", "待决事项"),
        ("process", "流程改进"), ("caveat", "口径与缺口")]
 
 
-def render(m):
+PDF_FONTS = """
+@font-face{font-family:'NotoSC';font-weight:400;src:url('file://%s/NotoSansSC-Regular.otf')}
+@font-face{font-family:'NotoSC';font-weight:700;src:url('file://%s/NotoSansSC-Bold.otf')}
+@font-face{font-family:'NotoSC';font-weight:900;src:url('file://%s/NotoSansSC-Bold.otf')}
+body,.num,.ax,.bval,.endlab,.bval-blue,.bval-orange,.tl .d,.why .wn{font-family:'NotoSC',sans-serif!important}
+.nav{display:none}
+"""
+
+
+def render(m, pdf=False, standalone=False):
     up, ca, cb = m["up"], m["cand_a"], m["cand_b"]
     lo, hi = m["cost_day"]
     nav = "".join(f'<a href="#{i}">{t}</a>' for i, t in NAV)
@@ -423,7 +469,7 @@ def render(m):
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@500;600&display=swap">
-<style>{CSS}</style>
+<style>{CSS}{_pdf_font_css() if pdf else ""}</style>
 
 <nav class="nav"><div class="nav-in">{nav}</div></nav>
 <div class="wrap">
@@ -759,7 +805,7 @@ def render(m):
         后续可能转向新的区号、通道或客户端版本，需持续观察。</li>
     </ul>
   </div>
-  <details style="margin-top:14px">
+  <details style="margin-top:14px" open>
     <summary>附录：技术细节与详细报告（供风控 / DBA 下钻）</summary>
     <ul>
       <li><b>判定标准</b>：遵循风控 SOP —— 需 ≥2 类独立特征交叉印证；单一特征一律标注「暂无法判断」，
@@ -780,7 +826,14 @@ def render(m):
 
 <footer>瑞幸咖啡北美 · 信息安全 / 数据库团队 · 本看板由风控源库数据自动生成，数字可追溯至明细 CSV</footer>
 </div>'''
-    return part1 + part2 + part3
+    doc = part1 + part2 + part3
+    if standalone:
+        head, _, tail = doc.partition("<nav class=")
+        doc = ('<!doctype html>\n<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n'
+               '<meta name="viewport" content="width=device-width,initial-scale=1">\n'
+               + head + "</head>\n<body>\n<nav class=" + tail
+               + "\n</body>\n</html>")
+    return doc
 
 
 def main():
@@ -795,3 +848,21 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def build_standalone(path=None):
+    """A single self-contained .html the user can attach to an email / Feishu message.
+
+    Deliberately NOT a PDF: this container has no browser and its text stack cannot
+    shape CJK, so every PDF it renders drops Chinese glyphs. Opening this file and
+    pressing Ctrl/Cmd+P produces a correct PDF in one step -- print CSS is included.
+    Chinese renders offline via the system stack (PingFang SC / Microsoft YaHei);
+    the Google Fonts link is only an online upgrade.
+    """
+    m = load_all()
+    html = render(m, standalone=True)
+    path = path or os.path.join(F.OUT, "LKUS短信攻击处置简报.html")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(html)
+    print(f"wrote {path}  ({os.path.getsize(path):,} bytes)")
+    return path
