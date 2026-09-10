@@ -25,3 +25,16 @@
 
 - `04` 与 `05` 中的数字全部来自 24 小时快照或大盘截图，**不能当作长期结论**；正式报告的每个数字都应从数据库重算。
 - 对外报告中手机号需脱敏（保留区号 + 前 3 位），IP 不写全段。
+
+## 分析产出（2026-09-10）
+
+| 目录 | 内容 |
+|---|---|
+| [`out/`](out/) | 9 份报告 + `summary.md` 一页纸 |
+| [`out/charts/`](out/charts/) | 7 张图 |
+| [`out/data/`](out/data/) | 每个数字背后的表（CSV），报告里的数都能在这里追溯 |
+| [`sms_attack/`](sms_attack/) | 可复跑管道：`python -m sms_attack.evaluate --strategy <id> --window 5h` |
+
+先看 [`out/summary.md`](out/summary.md)，再看 [`out/07_群消息.md`](out/07_群消息.md)（可直接粘贴到群里）。
+
+> 报告中手机号已脱敏（保留区号+前 3 位），IP 不写全段；原始数据不在本仓库。

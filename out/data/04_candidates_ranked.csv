@@ -1,0 +1,14 @@
+策略,状态,动作,24h命中量,增量召回,占漏召回%,误伤%,攻击前窗命中,攻击前命中中+1,SOP门槛,建议动作,优先级
+strategy_MGj5bfGOijOi,预上线,REJECT,3581,1599,56.4,0.0,1091,0,命中样本≥20 ✅,🟢 建议例外审批上线（REJECT）,P0
+strategy_aEw2XWL4QIYx,预上线,REJECT,3365,1349,47.6,0.3,1838,881,命中样本≥20 ✅,❌ 暂不上线（攻击前窗口误伤真实用户）,—
+strategy_rDf6oPcZ8ydk,预上线,REJECT,3328,1331,47.0,0.0,371,0,命中样本≥20 ✅,🟢 建议例外审批上线（REJECT）,P0
+strategy_aMgzQ6DeG4ea,预上线,REJECT,2332,972,34.3,0.2,57,10,命中样本≥20 ✅,🟢 建议例外审批上线（REJECT）,P0
+strategy_x37TInaHsvPQ,预上线,REJECT,2257,936,33.0,0.0,189,0,命中样本≥20 ✅,🟢 建议例外审批上线（REJECT）,P0
+strategy_XJefRbJPjhpx,预上线,REJECT,2378,880,31.1,0.0,320,1,命中样本≥20 ✅,🟢 建议例外审批上线（REJECT）,P0
+strategy_l44EWYqtinsu,预上线,REJECT,1660,647,22.8,0.0,0,0,命中样本≥20 ✅,🟢 建议例外审批上线（REJECT）,P0
+strategy_ARqkLD7E3JaK,预上线,REJECT,1610,503,17.8,0.0,0,0,命中样本≥20 ✅,🟢 建议例外审批上线（REJECT）,P0
+strategy_QgstgoGXTYmD,预上线,REJECT,377,57,2.0,0.0,102,0,命中样本≥20 ✅,🟡 建议上线（补充位）,P1
+strategy_bTCEWBZggaAP,预上线,REJECT,181,45,1.6,0.0,9,0,命中样本≥20 ✅,🟡 建议上线（补充位）,P1
+strategy_D2vycSNfe0uK,预上线,REJECT,316,0,0.0,0.0,0,0,命中样本≥20 ✅,⚪ 保持预上线观察,P3
+strategy_NkRpGFInAJnE,预上线,REJECT,6,0,0.0,16.7,18,15,命中样本6 ❌,⚪ 保持预上线观察,P3
+strategy_nmoBvnI3X5Ch,预上线,REJECT,32,0,0.0,0.0,0,0,命中样本≥20 ✅,⚪ 保持预上线观察,P3
