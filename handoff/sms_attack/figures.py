@@ -208,3 +208,33 @@ def measures_timeline(since="2026-08-27"):
            .reset_index().rename(columns={"update_time": "日期", "status": "状态"}))
     g["状态"] = g["状态"].map(STATUS_ZH)
     return dump(g, "06_measures_timeline.csv")
+
+
+def source_country(d, since="2026-09-04", top=8):
+    """Where the attack traffic comes from, by IP country."""
+    a = d[(d.create_time >= pd.Timestamp(since)) & (d.ac_group == "非+1/+86")]
+    vc = a["real_ip_country"].value_counts()
+    top_n = vc.head(top)
+    rows = [{"来源国家": k, "请求数": int(v), "占比%": pct(int(v), len(a))} for k, v in top_n.items()]
+    other = int(vc.iloc[top:].sum())
+    if other:
+        rows.append({"来源国家": "其他", "请求数": other, "占比%": pct(other, len(a))})
+    return dump(pd.DataFrame(rows), "07_source_country.csv")
+
+
+def device_profile(d, since="2026-09-04", top=6):
+    """Device model mix: attack traffic vs the legitimate +1 baseline.
+
+    The contrast is the point -- real US users are overwhelmingly iPhone, the attack
+    fleet is entirely budget Android models with no meaningful US retail presence.
+    """
+    a = d[(d.create_time >= pd.Timestamp(since)) & (d.ac_group == "非+1/+86")]
+    b = d[(d.create_time >= pd.Timestamp(since)) & (d.ac_group == "+1")]
+    rows = []
+    for nm, x in [("攻击流量", a), ("正常美国用户", b)]:
+        vc = x["brand"].value_counts().head(top)
+        for k, v in vc.items():
+            rows.append({"分组": nm, "机型": str(k), "请求数": int(v), "占比%": pct(int(v), len(x))})
+        rows.append({"分组": nm, "机型": "__iPhone合计__", "请求数": int((x.brand == "iPhone").sum()),
+                     "占比%": pct(int((x.brand == "iPhone").sum()), len(x))})
+    return dump(pd.DataFrame(rows), "07_device_profile.csv")
