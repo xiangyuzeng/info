@@ -40,6 +40,13 @@ def _m9_compare(s6):
     return pd.DataFrame(rows)
 
 
+def _baseline(up):
+    """Pre-attack baseline = mean of the 7 full days 08-27~09-02 (range also reported).
+    A single day (08-27 = 30) is the lowest of the week and overstates the multiple."""
+    b = up[(up["日期"] >= "2026-08-27") & (up["日期"] <= "2026-09-02")]["其他区号发送"]
+    return b.mean(), int(b.min()), int(b.max())
+
+
 def md(df, index=False):
     return df.to_markdown(index=index, tablefmt="github")
 
@@ -229,7 +236,7 @@ def report_01(d):
 
 | 要件 | 内容 |
 |---|---|
-| 原因 | 正在遭受黑产攻击的应急处置场景：非 +1/+86 短信发送量从攻击前 30~86 条/日升至 2,337 条/日（09-09），成本实时发生 |
+| 原因 | 正在遭受黑产攻击的应急处置场景：非 +1/+86 短信发送量从攻击前日均 66 条（区间 30~86）升至 2,337 条/日（09-09），成本实时发生 |
 | 风险 | 误伤非美国区号的真实用户。实测误伤率 {pct(ge['wrong'], nh)}%（命中样本中判为"正常用户" {ge['wrong']} 条） |
 | 补充控制措施 | ①仅对非 +1/+86 生效，+1/+86 完全不受影响；②保留白名单通道；③上线后逐小时观察命中率与 REVIEW/投诉 |
 | 上线后监控安排 | 逐小时看命中量/命中率/熔断；非 +1 PASS 量与 upush 其他区号发送量日对比；发现误伤电话通知并立即回滚 |
@@ -575,7 +582,7 @@ def report_07(d):
     cand = pd.read_csv(os.path.join(F.OUT_DATA, "04_candidates.csv")).set_index("策略")
     up = F.upush_series()
     u9 = up[up["日期"] == "2026-09-09"].iloc[0]
-    ubase = up[up["日期"] == "2026-08-27"].iloc[0]
+    bmean, blo, bhi = _baseline(up)
     e = pd.read_csv(os.path.join(F.OUT_DATA, "05_edt_hour_profile.csv"))
     lo = e[(e.hour_edt >= 14) & (e.hour_edt <= 18)]["非+1/+86"].sum()
     tot_e = e["非+1/+86"].sum()
@@ -697,7 +704,7 @@ cid=105 占 96.8%；版本 1.4.42 占 78.2%。所以只加 token 类策略吃不
 @段枝宏 如实汇报：这波到现在**还没有压制下去**，我把已做的、没做到的、和下一步都列清楚。
 
 现状（upush 实发短信，最能代表钱）：
-· 其他区号日发送量：攻击前 8/27 是 {int(ubase['其他区号发送'])} 条/天 → 9/9 是 {int(u9['其他区号发送']):,} 条/天，还在涨，没有拐点。
+· 其他区号日发送量：攻击前 7 日均值 {bmean:.0f} 条/天（区间 {blo}~{bhi}）→ 9/9 是 {int(u9['其他区号发送']):,} 条/天，约 {int(u9['其他区号发送'])/bmean:.1f} 倍，还在涨，没有拐点。
 · 同期 +1 正常发送量稳定在 900~1400/天，验证码填充率稳定 95~96%；其他区号填充率从攻击前 ~24% 掉到 {u9['其他区号填充率%']}%——
   发出去的短信基本没人用，确认是 pumping 不是真实需求。
 · 好消息：REJECT 是真的省钱，9/9 拦下的 3,378 条没有产生任何下发。
@@ -1181,7 +1188,7 @@ def report_06(d):
     rc = pd.read_csv(os.path.join(F.OUT_DATA, "02_recall.csv"))
     r1, r2, nwrong = _combo_recall(d, T0, T1)
     u9 = up[up["日期"] == "2026-09-09"].iloc[0]
-    ub = up[up["日期"] == "2026-08-27"].iloc[0]
+    bmean, blo, bhi = _baseline(up)
     plan = pd.DataFrame([
         ("T+2h", "上线 MGj5bfGOijOi + x37TInaHsvPQ（例外审批）",
          f"黑产召回 {rc.iloc[1]['ONLINE召回%']}% → {r1}%", "极低（攻击前25天回测 +1 命中 0 条）", "田志鲔配置 / 段枝宏审批"),
@@ -1204,8 +1211,8 @@ def report_06(d):
 
 > **这波攻击到目前为止没有被压制下去，并且优化空间明确存在。**
 >
-> 非 +1/+86 实发短信量：攻击前（08-27）**{int(ub['其他区号发送'])} 条/天** → 09-09 **{int(u9['其他区号发送']):,} 条/天**，
-> 曲线仍在上行，无拐点。
+> 非 +1/+86 实发短信量：攻击前 7 日均值 **{bmean:.0f} 条/天**（区间 {blo}~{bhi}）→ 09-09 **{int(u9['其他区号发送']):,} 条/天**，
+> 约 **{int(u9['其他区号发送'])/bmean:.1f} 倍**，曲线仍在上行，无拐点。
 > 优化空间：有 2 条策略从 09-04 起就配置在预上线、观察 6 天未推进，上线即可把召回从
 > {rc.iloc[1]['ONLINE召回%']}% 提到 {r1}%。
 
@@ -1280,7 +1287,7 @@ def report_summary(d):
     rc = pd.read_csv(os.path.join(F.OUT_DATA, "02_recall.csv"))
     up = F.upush_series()
     u9 = up[up["日期"] == "2026-09-09"].iloc[0]
-    ub = up[up["日期"] == "2026-08-27"].iloc[0]
+    bmean, blo, bhi = _baseline(up)
     r1, r2, nwrong = _combo_recall(d, T0, T1)
     txt = f"""# summary · 一页纸
 
@@ -1303,7 +1310,7 @@ def report_summary(d):
 
 | 指标 | 数值 |
 |---|---|
-| 非 +1/+86 实发短信 | 攻击前 {int(ub['其他区号发送'])} 条/天 → 09-09 **{int(u9['其他区号发送']):,} 条/天**（仍在上行） |
+| 非 +1/+86 实发短信 | 攻击前日均 {bmean:.0f} 条（区间 {blo}~{bhi}）→ 09-09 **{int(u9['其他区号发送']):,} 条/天**，约 **{int(u9['其他区号发送'])/bmean:.1f} 倍**，仍在上行 |
 | 其他区号验证码填充率 | 攻击前 ~24% → **{u9['其他区号填充率%']}%**（+1 用户稳定 95~96%） |
 | 当前召回率（SOP 标签 / 田志鲔口径） | **{rc.iloc[1]['ONLINE召回%']}% / {rc.iloc[0]['ONLINE召回%']}%** |
 | 最近 24h 漏出并实际发出 | **{int(rc.iloc[1]['漏召回(PASS)']):,} 条** |
