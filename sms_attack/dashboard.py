@@ -35,7 +35,8 @@ def load_all():
 
     atk = dv[(dv.date_utc >= "2026-09-03") & (dv.date_utc <= "2026-09-09")].copy()
     atk["rej"] = atk["非1_86调用"] - atk["非1_86_PASS"]
-    base = up[(up["日期"] >= "2026-08-27") & (up["日期"] <= "2026-09-02")]["其他区号发送"]
+    # 攻击前窗 = the same 25 days every backtest uses (see report._baseline)
+    base = up[(up["日期"] >= "2026-08-09") & (up["日期"] <= "2026-09-02")]["其他区号发送"]
     last = up.iloc[-1]
 
     m = {
@@ -534,11 +535,11 @@ def render(m, pdf=False, standalone=False):
   <h2 class="sec">二、事件经过</h2>
   <p class="seclede">时间为 UTC。措施时间取自风控策略表的实际变更记录，不是回忆。</p>
   <div class="card"><ul class="tl">
-    <li><div class="d">08-27 ~ 09-02</div><div class="h">攻击前基线</div>
+    <li><div class="d">08-09 ~ 09-02</div><div class="h">攻击前基线（25 天）</div>
       <div class="b">非 +1/+86 区号日均发送 {_f(m['baseline'])} 条（区间 {m['base_lo']}~{m['base_hi']}），
         验证码填充率约 24%，属正常水平。</div></li>
     <li class="hot"><div class="d">09-03</div><div class="h">攻击起量</div>
-      <div class="b">非 +1/+86 发送量跳到 273 条，为基线的 4 倍。填充率同步掉到 8.1%。</div></li>
+      <div class="b">非 +1/+86 发送量跳到 273 条，为基线的 {273/m['baseline']:.1f} 倍。填充率同步掉到 8.1%。</div></li>
     <li><div class="d">09-03 ~ 09-04</div><div class="h">上调既有速度类策略</div>
       <div class="b">09-03 有 8 条频次类策略被启用，09-04 再启用 1 条；同日把两条最有效的
         「单区号日频次」策略配置为<b>观察状态（已配置但未生效）</b>。</div></li>

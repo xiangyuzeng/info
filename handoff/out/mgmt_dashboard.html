@@ -203,14 +203,14 @@ footer{color:var(--ink-3);font-size:12px;text-align:center;padding-top:6px}
     <h1>短信验证码遭黑产刷量 · 第 8 天处置简报</h1>
     <p class="lede">攻击方持续向<b>我们没有客户的国家</b>刷取验证码短信，每条都由公司真实付费。
       当前每天仍有 <b class="num">2,337</b> 条攻击短信发出，是攻击前日均的
-      <b class="num">35.6</b> 倍。<b>正常美国用户完全未受影响。</b>
+      <b class="num">39.3</b> 倍。<b>正常美国用户完全未受影响。</b>
       两条策略已配置完成、等待审批，<b>上线即可把拦截率从 53.8% 提到 95.2%</b>，
       且攻击前 25 天回测对美国真实用户零命中。</p>
     <div class="meta">数据来源：风控请求日志（64 分片源库）+ 短信发送记录，全程只读 · 共 76,764 条风控请求</div>
   </header>
   <div class="kpis" style="margin-top:18px">
     <div class="kpi"><div class="k">每日攻击短信</div><div class="v crit num">2,337</div>
-      <div class="s">攻击前日均 66 条 · <b>↑35.6倍</b></div></div>
+      <div class="s">攻击前日均 60 条 · <b>↑39.3倍</b></div></div>
     <div class="kpi"><div class="k">当前拦截率</div><div class="v warn num">53.8%</div>
       <div class="s">仍有 2,836 条/日漏过</div></div>
     <div class="kpi"><div class="k">估算日损耗</div><div class="v crit num">$70~304</div>
@@ -282,7 +282,7 @@ footer{color:var(--ink-3);font-size:12px;text-align:center;padding-top:6px}
         <li><b>国际短信结算价高</b>，分成空间大；</li>
         <li><b>电信监管相对宽松</b>，话务分成安排不易被追责；</li>
         <li><b>我们在这些国家没有任何业务</b>，正常情况下几乎不会有验证码请求——
-          攻击前这些区号合计每天只有 66 条。</li>
+          攻击前这些区号合计每天只有 60 条。</li>
       </ul></div>
     <div class="card"><h3>行业背景：这不是个案</h3>
       <p class="sub" style="margin-bottom:10px">用于判断这是行业性风险还是我们独有的运维失误：</p>
@@ -300,11 +300,11 @@ footer{color:var(--ink-3);font-size:12px;text-align:center;padding-top:6px}
   <h2 class="sec">二、事件经过</h2>
   <p class="seclede">时间为 UTC。措施时间取自风控策略表的实际变更记录，不是回忆。</p>
   <div class="card"><ul class="tl">
-    <li><div class="d">08-27 ~ 09-02</div><div class="h">攻击前基线</div>
-      <div class="b">非 +1/+86 区号日均发送 66 条（区间 30~86），
+    <li><div class="d">08-09 ~ 09-02</div><div class="h">攻击前基线（25 天）</div>
+      <div class="b">非 +1/+86 区号日均发送 60 条（区间 30~86），
         验证码填充率约 24%，属正常水平。</div></li>
     <li class="hot"><div class="d">09-03</div><div class="h">攻击起量</div>
-      <div class="b">非 +1/+86 发送量跳到 273 条，为基线的 4 倍。填充率同步掉到 8.1%。</div></li>
+      <div class="b">非 +1/+86 发送量跳到 273 条，为基线的 4.6 倍。填充率同步掉到 8.1%。</div></li>
     <li><div class="d">09-03 ~ 09-04</div><div class="h">上调既有速度类策略</div>
       <div class="b">09-03 有 8 条频次类策略被启用，09-04 再启用 1 条；同日把两条最有效的
         「单区号日频次」策略配置为<b>观察状态（已配置但未生效）</b>。</div></li>

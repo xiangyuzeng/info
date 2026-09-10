@@ -41,9 +41,13 @@ def _m9_compare(s6):
 
 
 def _baseline(up):
-    """Pre-attack baseline = mean of the 7 full days 08-27~09-02 (range also reported).
-    A single day (08-27 = 30) is the lowest of the week and overstates the multiple."""
-    b = up[(up["日期"] >= "2026-08-27") & (up["日期"] <= "2026-09-02")]["其他区号发送"]
+    """Pre-attack baseline = mean over the 25-day 攻击前窗 08-09~09-02.
+
+    That window is the one every backtest in this project uses, so the baseline has to
+    match it or the two halves of a report disagree. (A single day -- 08-27 = 30, the
+    lowest of that week -- would overstate the multiple; the 7-day mean 65.7 was an
+    earlier choice, replaced for consistency with the backtest window.)"""
+    b = up[(up["日期"] >= "2026-08-09") & (up["日期"] <= "2026-09-02")]["其他区号发送"]
     return b.mean(), int(b.min()), int(b.max())
 
 
